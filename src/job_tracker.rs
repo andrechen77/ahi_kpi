@@ -66,8 +66,7 @@ impl<const M: usize, const N: usize, J: Clone + PartialEq + Debug> JobTracker<M,
     /// the timestamps slice represents the number of milestones achieved by the
     /// job; it must not exceed the total number of job milestones (i.e. N), and
     /// must be greater than 0. The loss_timestamp is the time at which the job
-    /// was lost, if it was lost. If the job was not lost, which is equivalent
-    /// to if the job reached the final milestone, this should be None.
+    /// was lost, if it was lost.
     pub fn add_job(
         &mut self,
         job: &J,
@@ -118,8 +117,6 @@ impl<const M: usize, const N: usize, J: Clone + PartialEq + Debug> JobTracker<M,
                     job
                 );
             }
-        } else if timestamps.len() != N {
-            warn!("If a job was not lost, it must have reached all milestones: {:?}", job);
         }
     }
 

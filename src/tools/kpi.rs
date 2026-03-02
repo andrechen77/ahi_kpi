@@ -42,11 +42,11 @@ pub struct KpiData {
 
 pub fn calculate_kpi<'a>(
     jobs: impl IntoIterator<Item = Arc<Job>>,
-    date_range: DateRange,
+    settled_date_filter: Option<DateRange>,
     abandon_date: Timestamp,
 ) -> KpiData {
     let (trackers_by_rep, red_flags_by_rep, unsettled_jobs, abandoned_jobs, milestoneless_jobs) =
-        processing::process_jobs(jobs.into_iter(), date_range, abandon_date);
+        processing::process_jobs(jobs.into_iter(), settled_date_filter, abandon_date);
     let stats_by_rep: BTreeMap<_, _> = trackers_by_rep
         .into_iter()
         .map(|(rep, tracker)| (rep, processing::calculate_job_tracker_stats(&tracker)))
@@ -57,8 +57,6 @@ pub fn calculate_kpi<'a>(
 
 mod processing {
     use std::{collections::BTreeMap, sync::Arc};
-
-    use tracing::info;
 
     use crate::{
         date_range::DateRange,
@@ -85,18 +83,11 @@ mod processing {
     /// Any errors in the job data are returned in the red flags.
     pub fn process_jobs(
         jobs: impl Iterator<Item = Arc<Job>>,
-        settled_date_range: DateRange,
+        settled_date_filter: Option<DateRange>,
         // If provided, any abandoned jobs whose last update was before this
         // date are marked as such.
         abandon_date: Timestamp,
     ) -> ProcessJobsResult {
-        let DateRange { from_date, to_date } = settled_date_range;
-        info!(
-            "Processing jobs settled between {} and {}",
-            from_date.map(|dt| dt.to_string()).as_deref().unwrap_or("the beginning of time"),
-            to_date.map(|dt| dt.to_string()).as_deref().unwrap_or("the end of time")
-        );
-
         let mut trackers = BTreeMap::new();
         let mut red_flags = BTreeMap::new();
         let mut unsettled_jobs = Vec::new();
@@ -110,33 +101,26 @@ mod processing {
                 None => KpiSubject::UnknownSalesRep,
             };
             if let AnalyzedJob { analysis: Some(analysis), .. } = analyzed.as_ref() {
-                // only add jobs that were settled
-                if let Some(date_settled) = analysis.date_settled() {
-                    // only add jobs that were settled within the date range
-                    if (from_date.is_none() || date_settled >= from_date.unwrap())
-                        && (to_date.is_none() || date_settled <= to_date.unwrap())
-                    {
-                        let kind = analysis.kind.into_int();
-                        trackers
-                            .entry(KpiSubject::Global)
-                            .or_insert_with(job_tracker::build_job_tracker)
-                            .add_job(
-                                &analyzed,
-                                kind,
-                                &analysis.timestamps,
-                                analysis.loss_timestamp,
-                            );
-                        trackers
-                            .entry(target.clone())
-                            .or_insert_with(job_tracker::build_job_tracker)
-                            .add_job(
-                                &analyzed,
-                                kind,
-                                &analysis.timestamps,
-                                analysis.loss_timestamp,
-                            );
-                    }
-                } else if let Some(last_update) = analysis.last_update() {
+                // only add jobs settled within the provided range
+                if settled_date_filter.is_none()
+                    || settled_date_filter
+                        .as_ref()
+                        .unwrap()
+                        .check_date(analysis.date_settled().unwrap())
+                {
+                    let kind = analysis.kind.into_int();
+                    trackers
+                        .entry(KpiSubject::Global)
+                        .or_insert_with(job_tracker::build_job_tracker)
+                        .add_job(&analyzed, kind, &analysis.timestamps, analysis.loss_timestamp);
+                    trackers
+                        .entry(target.clone())
+                        .or_insert_with(job_tracker::build_job_tracker)
+                        .add_job(&analyzed, kind, &analysis.timestamps, analysis.loss_timestamp);
+                }
+
+                // also check for abandoned or milestoneless jobs
+                if let Some(last_update) = analysis.last_update() {
                     if last_update < abandon_date {
                         abandoned_jobs.push(analyzed.clone());
                     } else {

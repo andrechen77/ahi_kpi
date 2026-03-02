@@ -56,7 +56,10 @@ impl DateRange {
                 if let Some(date) = date {
                     Some(date)
                 } else {
-                    bail!("invalid date format \"{date_string}\". Use 'Forever', 'Start-of-year', 'Today', or '{}'", DATE_FORMATS.join(" or "));
+                    bail!(
+                        "invalid date format \"{date_string}\". Use 'Forever', 'Start-of-year', 'Today', or '{}'",
+                        DATE_FORMATS.join(" or ")
+                    );
                 }
             }
         };
@@ -72,12 +75,29 @@ impl DateRange {
                 if let Some(date) = date {
                     Some(date)
                 } else {
-                    bail!("invalid date format \"{date_string}\". Use 'Forever', 'Start-of-year', 'Today', or '{}'", DATE_FORMATS.join(" or "));
+                    bail!(
+                        "invalid date format \"{date_string}\". Use 'Forever', 'Start-of-year', 'Today', or '{}'",
+                        DATE_FORMATS.join(" or ")
+                    );
                 }
             }
         };
 
         Ok(Self { from_date, to_date })
+    }
+
+    pub fn check_date(&self, date: Timestamp) -> bool {
+        if let Some(from_date) = self.from_date
+            && date < from_date
+        {
+            return false;
+        }
+        if let Some(to_date) = self.to_date
+            && date > to_date
+        {
+            return false;
+        }
+        true
     }
 }
 

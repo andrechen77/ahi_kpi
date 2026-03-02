@@ -25,7 +25,7 @@ pub struct KpiPage {
     pub selected_rep: Option<KpiSubject>,
     pub spreadsheet_id: FileBacked<String>,
     /// The current value of the settled date range dropdown selector.
-    settled_date_range_option: DateRangeOption,
+    settled_date_range_option: Option<DateRangeOption>,
     /// The current value of the settled date range custom date fields.
     settled_date_range_custom: (String, String),
     /// The current value of the created date range dropdown selector.
@@ -47,7 +47,7 @@ impl KpiPage {
         Self {
             selected_rep: None,
             spreadsheet_id,
-            settled_date_range_option: DateRangeOption::Forever,
+            settled_date_range_option: None,
             settled_date_range_custom: (String::new(), String::new()),
             created_date_range_option: DateRangeOption::Forever,
             created_date_range_custom: (String::new(), String::new()),
@@ -69,31 +69,39 @@ impl KpiPage {
             ui.heading("Calculate Key Performance Indicators");
 
             if let Some(jn_data) = jn_client.get_data().as_ref() {
-                egui::ComboBox::from_label("Range for date settled")
-                    .selected_text(self.settled_date_range_option.to_str())
+                egui::ComboBox::from_label("Range for date settled (i.e. installed or lost)")
+                    .selected_text(
+                        self.settled_date_range_option
+                            .map_or("Allow all jobs including unsettled", |option| option.to_str()),
+                    )
                     .show_ui(ui, |ui| {
                         ui.selectable_value(
                             &mut self.settled_date_range_option,
-                            DateRangeOption::Forever,
+                            None,
+                            "Allow all jobs including unsettled",
+                        );
+                        ui.selectable_value(
+                            &mut self.settled_date_range_option,
+                            Some(DateRangeOption::Forever),
                             DateRangeOption::Forever.to_str(),
                         );
                         ui.selectable_value(
                             &mut self.settled_date_range_option,
-                            DateRangeOption::LastYear,
+                            Some(DateRangeOption::LastYear),
                             DateRangeOption::LastYear.to_str(),
                         );
                         ui.selectable_value(
                             &mut self.settled_date_range_option,
-                            DateRangeOption::YearToDate,
+                            Some(DateRangeOption::YearToDate),
                             DateRangeOption::YearToDate.to_str(),
                         );
                         ui.selectable_value(
                             &mut self.settled_date_range_option,
-                            DateRangeOption::Custom,
+                            Some(DateRangeOption::Custom),
                             DateRangeOption::Custom.to_str(),
                         );
                     });
-                if self.settled_date_range_option == DateRangeOption::Custom {
+                if self.settled_date_range_option == Some(DateRangeOption::Custom) {
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.settled_date_range_custom.0)
@@ -279,16 +287,20 @@ impl KpiPage {
         });
     }
 
-    fn get_settled_date_range(&self) -> anyhow::Result<DateRange> {
-        match self.settled_date_range_option {
-            DateRangeOption::Forever => Ok(DateRange::ALL_TIME),
-            DateRangeOption::LastYear => Ok(DateRange::last_year()),
-            DateRangeOption::YearToDate => Ok(DateRange::year_to_date()),
+    fn get_settled_date_range(&self) -> anyhow::Result<Option<DateRange>> {
+        let Some(settled_date_range_option) = self.settled_date_range_option else {
+            return Ok(None);
+        };
+        let range = match settled_date_range_option {
+            DateRangeOption::Forever => DateRange::ALL_TIME,
+            DateRangeOption::LastYear => DateRange::last_year(),
+            DateRangeOption::YearToDate => DateRange::year_to_date(),
             DateRangeOption::Custom => DateRange::from_strs(
                 &self.settled_date_range_custom.0,
                 &self.settled_date_range_custom.1,
-            ),
-        }
+            )?,
+        };
+        Ok(Some(range))
     }
 
     fn get_created_date_range(&self) -> anyhow::Result<DateRange> {
@@ -314,7 +326,7 @@ impl KpiPage {
         let mut settings = Vec::new();
         settings.push(vec![
             "Date settled range".to_string(),
-            self.settled_date_range_option.to_str().to_owned(),
+            self.settled_date_range_option.map_or("None", |x| x.to_str()).to_owned(),
             self.settled_date_range_custom.0.clone(),
             self.settled_date_range_custom.1.clone(),
         ]);
